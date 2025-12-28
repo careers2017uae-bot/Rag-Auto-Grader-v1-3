@@ -8,7 +8,7 @@ from io import BytesIO
 
 # Optional PDF import
 try:
-   import pdfplumber
+    import pdfplumber
 except Exception:
     pdfplumber = None
 
