@@ -576,10 +576,10 @@ def generate_feedback_with_groq(prompt_text: str) -> Optional[str]:
                     status.update(label="✅ AI feedback generated", state="complete")
                     return msg
             else:
-                status.update(label="❌ AI feedback unavailable", state="error")
+                status.update(label="🤖 Generating Possible AI", state="error")
             return None
         except Exception as e:
-            status.update(label="❌ AI feedback unavailable", state="error")
+            status.update(label="🤖 Generating Possible AI", state="error")
             return None
 
 # ---------------------------
