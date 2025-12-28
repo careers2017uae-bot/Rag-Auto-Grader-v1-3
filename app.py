@@ -12,6 +12,7 @@ try:
 except Exception:
     pdfplumber = None
 
+
 import os
 import json
 import time
