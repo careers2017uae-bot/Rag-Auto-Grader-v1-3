@@ -7,10 +7,12 @@ import pandas as pd
 from io import BytesIO
 
 # Optional PDF import
+# Optional PDF import
 try:
     import pdfplumber
 except Exception:
-    pdfplumber = None
+    pdfplumber = None   # <--- assign None if import fails
+
 
 
 import os
