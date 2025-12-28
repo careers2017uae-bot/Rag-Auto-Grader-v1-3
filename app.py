@@ -3,21 +3,21 @@
 RAG-based Student Work Auto-Grader (Streamlit) - Enhanced UX Version
 Applying HCI Principles: Progressive Disclosure, Immediate Feedback, Clear Affordances, etc.
 """
-#import pandas as pd
-#from io import BytesIO
+import pandas as pd
+from io import BytesIO
 
 # Optional PDF import
 try:
-   # import pdfplumber
+   import pdfplumber
 except Exception:
     pdfplumber = None
 
-#import os
-#import json
-#import time
-#import streamlit as st
+import os
+import json
+import time
+import streamlit as st
 from typing import List, Dict, Any, Optional
-#import numpy as np
+import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 import requests
