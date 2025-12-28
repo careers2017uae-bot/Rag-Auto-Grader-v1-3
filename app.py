@@ -7,13 +7,10 @@ import pandas as pd
 from io import BytesIO
 
 # Optional PDF import
-# Optional PDF import
 try:
     import pdfplumber
 except Exception:
-    pdfplumber = None   # <--- assign None if import fails
-
-
+    pdfplumber = None
 
 import os
 import json
@@ -579,10 +576,10 @@ def generate_feedback_with_groq(prompt_text: str) -> Optional[str]:
                     status.update(label="✅ AI feedback generated", state="complete")
                     return msg
             else:
-                status.update(label="🔶 AI feedback possible", state="error") #Label changed
+                status.update(label="❌ AI feedback unavailable", state="error")
             return None
         except Exception as e:
-            status.update(label="🔶 AI feedback possible", state="error") #Label changed
+            status.update(label="❌ AI feedback unavailable", state="error")
             return None
 
 # ---------------------------
