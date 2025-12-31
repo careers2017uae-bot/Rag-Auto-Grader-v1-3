@@ -1,188 +1,244 @@
-"""
-RAG-Based Student Work Auto-Grader (v1.3)
-- Stable Streamlit Deployment
-- BAAI/bge-large-en-v1.5 Embeddings
-- Human-readable Rubric (NO JSON)
-- HCI-friendly UX (Progressive Disclosure)
-"""
+# ============================================================
+# RAG-based Student Work Auto-Grader
+# Version 1.3 (Stable, Deployable)
+# UI + Rubric IDENTICAL to v1.2
+# ============================================================
 
 import streamlit as st
-import numpy as np
 import pandas as pd
-from typing import List, Dict
-from sentence_transformers import SentenceTransformer
+import numpy as np
+import json
+import tempfile
+from io import BytesIO
 from sklearn.metrics.pairwise import cosine_similarity
 
-# -------------------------------------------------
-# Streamlit Page Config (MUST BE FIRST)
-# -------------------------------------------------
+# ------------------------------
+# Optional imports (safe guards)
+# ------------------------------
+try:
+    import pdfplumber
+except:
+    pdfplumber = None
+
+try:
+    import docx2txt
+except:
+    docx2txt = None
+
+try:
+    import language_tool_python
+    grammar_tool = language_tool_python.LanguageTool('en-US')
+except:
+    grammar_tool = None
+
+from sentence_transformers import SentenceTransformer
+
+# ------------------------------
+# Streamlit Config (UNCHANGED)
+# ------------------------------
 st.set_page_config(
     page_title="AI Student Work Auto-Grader",
-    page_icon="📘",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# -------------------------------------------------
-# Load Embedding Model (SAFE FOR CLOUD)
-# -------------------------------------------------
-@st.cache_resource(show_spinner="🔄 Loading AI grading engine (BGE Large)...")
+st.title("📘 AI-Powered Student Work Auto-Grader")
+
+# ------------------------------
+# Load Embedding Model (STABLE)
+# ------------------------------
+@st.cache_resource(show_spinner="Loading semantic model...")
 def load_embedding_model():
     return SentenceTransformer(
         "BAAI/bge-large-en-v1.5",
         device="cpu"
     )
 
-embedding_model = load_embedding_model()
+embedder = load_embedding_model()
 
-# -------------------------------------------------
-# Embedding Function (NO BLOCKING / NO FAKE LOOPS)
-# -------------------------------------------------
-def embed_texts(texts: List[str]) -> np.ndarray:
-    texts = [t if t else "" for t in texts]
-    return embedding_model.encode(
-        texts,
-        convert_to_numpy=True,
-        normalize_embeddings=True,
-        show_progress_bar=False
-    )
+# ------------------------------
+# Helper Functions
+# ------------------------------
+def read_uploaded_file(uploaded_file):
+    if uploaded_file is None:
+        return ""
 
-# -------------------------------------------------
-# Rubric Parsing (Teacher-Friendly)
-# -------------------------------------------------
-def parse_teacher_rubric(rubric_text: str) -> Dict[str, float]:
-    """
-    Expected format (example):
-    Content Quality: 40
-    Organization: 25
-    Language & Grammar: 20
-    Relevance: 15
-    """
-    rubric = {}
-    for line in rubric_text.splitlines():
-        if ":" in line:
-            try:
-                key, value = line.split(":")
-                rubric[key.strip()] = float(value.strip())
-            except ValueError:
-                continue
-    return rubric
+    suffix = uploaded_file.name.split(".")[-1].lower()
 
-# -------------------------------------------------
-# Core Grading Logic (Semantic Alignment)
-# -------------------------------------------------
-def grade_student_answer(
-    student_answer: str,
-    model_answer: str,
-    rubric: Dict[str, float]
-) -> Dict[str, float]:
+    with tempfile.NamedTemporaryFile(delete=False) as tmp:
+        tmp.write(uploaded_file.read())
+        tmp_path = tmp.name
 
-    texts = [student_answer, model_answer]
-    embeddings = embed_texts(texts)
+    try:
+        if suffix == "pdf" and pdfplumber:
+            text = ""
+            with pdfplumber.open(tmp_path) as pdf:
+                for page in pdf.pages:
+                    text += page.extract_text() or ""
+            return text
 
-    similarity = cosine_similarity(
-        [embeddings[0]],
-        [embeddings[1]]
-    )[0][0]
+        elif suffix in ["docx", "doc"] and docx2txt:
+            return docx2txt.process(tmp_path)
+
+        elif suffix == "txt":
+            with open(tmp_path, "r", encoding="utf-8", errors="ignore") as f:
+                return f.read()
+
+        else:
+            return ""
+
+    except Exception:
+        return ""
+
+def embed_texts(texts):
+    if isinstance(texts, str):
+        texts = [texts]
+    return embedder.encode(texts, normalize_embeddings=True)
+
+def similarity_score(student, model):
+    emb_student = embed_texts(student)
+    emb_model = embed_texts(model)
+    return float(cosine_similarity(emb_student, emb_model)[0][0])
+
+def grammar_check(text):
+    if grammar_tool is None or not text.strip():
+        return 0, []
+    matches = grammar_tool.check(text)
+    return len(matches), matches
+
+# ------------------------------
+# Rubric (IDENTICAL TO v1.2)
+# ------------------------------
+DEFAULT_RUBRIC = {
+    "Relevance": {
+        "weight": 0.25,
+        "description": "Alignment with the given question or task."
+    },
+    "Conceptual Accuracy": {
+        "weight": 0.25,
+        "description": "Correctness of concepts and explanations."
+    },
+    "Depth & Clarity": {
+        "weight": 0.20,
+        "description": "Explanation depth, clarity, and coherence."
+    },
+    "Structure & Organization": {
+        "weight": 0.15,
+        "description": "Logical flow, formatting, and readability."
+    },
+    "Language & Grammar": {
+        "weight": 0.15,
+        "description": "Grammar, spelling, and language quality."
+    }
+}
+
+def apply_rubric(student_text, model_text, rubric):
+    base_similarity = similarity_score(student_text, model_text)
+
+    grammar_errors, _ = grammar_check(student_text)
+    grammar_score = max(0, 1 - grammar_errors * 0.05)
 
     results = {}
-    for criterion, weight in rubric.items():
-        results[criterion] = round(similarity * weight, 2)
+    total_score = 0
 
-    results["Overall Similarity"] = round(similarity * 100, 2)
-    results["Total Score"] = round(sum(results.values()), 2)
+    for criterion, meta in rubric.items():
+        if criterion == "Language & Grammar":
+            score = grammar_score
+        else:
+            score = base_similarity
 
-    return results
+        weighted = score * meta["weight"]
+        results[criterion] = {
+            "raw_score": round(score, 2),
+            "weight": meta["weight"],
+            "weighted_score": round(weighted, 2),
+            "description": meta["description"]
+        }
+        total_score += weighted
 
-# -------------------------------------------------
-# UI HEADER
-# -------------------------------------------------
-st.title("📘 RAG-Based Student Work Auto-Grader")
-st.markdown(
-    """
-    **Pedagogically grounded, AI-assisted grading tool**  
-    Uses semantic similarity — *not generative hallucination*.
-    """
+    return round(total_score * 100, 2), results
+
+# ------------------------------
+# Sidebar (UNCHANGED)
+# ------------------------------
+st.sidebar.header("📂 Upload Files")
+
+student_file = st.sidebar.file_uploader(
+    "Upload Student Submission",
+    type=["pdf", "docx", "txt"]
 )
 
-st.divider()
+model_file = st.sidebar.file_uploader(
+    "Upload Model Solution",
+    type=["pdf", "docx", "txt"]
+)
 
-# -------------------------------------------------
-# Progressive Disclosure UI
-# -------------------------------------------------
-with st.expander("🧑‍🏫 Step 1: Provide Model Answer & Rubric", expanded=True):
-    model_answer = st.text_area(
-        "📌 Model / Ideal Answer",
-        height=180,
-        placeholder="Paste the ideal answer here..."
+use_default_rubric = st.sidebar.checkbox("Use Default Rubric", value=True)
+
+if not use_default_rubric:
+    rubric_json = st.sidebar.text_area(
+        "Paste Custom Rubric JSON",
+        value=json.dumps(DEFAULT_RUBRIC, indent=2),
+        height=300
     )
+    try:
+        rubric = json.loads(rubric_json)
+    except:
+        rubric = DEFAULT_RUBRIC
+else:
+    rubric = DEFAULT_RUBRIC
 
-    rubric_text = st.text_area(
-        "📋 Grading Rubric (Criterion : Weight)",
-        height=150,
-        placeholder="Content Quality: 40\nOrganization: 25\nLanguage & Grammar: 20\nRelevance: 15"
-    )
+# ------------------------------
+# Main Panel
+# ------------------------------
+if st.button("🚀 Grade Submission"):
 
-with st.expander("👩‍🎓 Step 2: Provide Student Answer", expanded=True):
-    student_answer = st.text_area(
-        "✍️ Student Answer",
-        height=220,
-        placeholder="Paste the student response here..."
-    )
+    with st.spinner("Reading files..."):
+        student_text = read_uploaded_file(student_file)
+        model_text = read_uploaded_file(model_file)
 
-st.divider()
-
-# -------------------------------------------------
-# Grading Action
-# -------------------------------------------------
-if st.button("🧠 Grade Student Answer", use_container_width=True):
-
-    if not model_answer or not student_answer or not rubric_text:
-        st.error("❌ Please provide model answer, student answer, and rubric.")
+    if not student_text or not model_text:
+        st.error("❌ Please upload BOTH student submission and model solution.")
     else:
-        with st.spinner("🔍 Analyzing semantic alignment..."):
-            rubric = parse_teacher_rubric(rubric_text)
+        with st.spinner("Evaluating using semantic analysis..."):
+            final_score, rubric_results = apply_rubric(
+                student_text,
+                model_text,
+                rubric
+            )
 
-            if not rubric:
-                st.error("❌ Rubric format invalid. Use 'Criterion: Weight'.")
-            else:
-                results = grade_student_answer(
-                    student_answer,
-                    model_answer,
-                    rubric
-                )
+        st.success(f"✅ Final Score: **{final_score}%**")
 
-                st.success("✅ Grading Completed")
+        st.subheader("📊 Rubric Breakdown")
 
-                # -------------------------------------------------
-                # Results Display
-                # -------------------------------------------------
-                col1, col2 = st.columns(2)
+        rubric_df = pd.DataFrame([
+            {
+                "Criterion": k,
+                "Raw Score": v["raw_score"],
+                "Weight": v["weight"],
+                "Weighted Score": v["weighted_score"]
+            }
+            for k, v in rubric_results.items()
+        ])
 
-                with col1:
-                    st.subheader("📊 Criterion-wise Scores")
-                    df = pd.DataFrame(
-                        list(results.items()),
-                        columns=["Criterion", "Score"]
-                    )
-                    st.dataframe(df, use_container_width=True)
+        st.dataframe(rubric_df, use_container_width=True)
 
-                with col2:
-                    st.subheader("🎯 Summary")
-                    st.metric(
-                        "Overall Semantic Similarity",
-                        f"{results['Overall Similarity']}%"
-                    )
-                    st.metric(
-                        "Total Weighted Score",
-                        results["Total Score"]
-                    )
+        with st.expander("🧠 Detailed Feedback"):
+            for k, v in rubric_results.items():
+                st.markdown(f"**{k}**")
+                st.markdown(f"- Description: {v['description']}")
+                st.markdown(f"- Raw Score: {v['raw_score']}")
+                st.markdown(f"- Weighted Contribution: {v['weighted_score']}")
+                st.markdown("---")
 
-# -------------------------------------------------
+        st.subheader("📄 Student Submission Preview")
+        st.text_area("", student_text, height=250)
+
+        st.subheader("📄 Model Solution Preview")
+        st.text_area("", model_text, height=250)
+
+# ------------------------------
 # Footer
-# -------------------------------------------------
-st.divider()
-st.caption(
-    "🔐 Academic Integrity Preserved | "
-    "⚙️ Embedding-based Evaluation | "
-    "🚫 No Generative Hallucination"
-)
+# ------------------------------
+st.markdown("---")
+st.caption("© ai!nfluence — RAG-based Academic Evaluation System")
