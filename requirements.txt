@@ -1,1 +1,10 @@
 
+streamlit
+sentence-transformers
+scikit-learn
+pandas
+pdfplumber
+docx2txt
+language-tool-python
+openpyxl
+requests
