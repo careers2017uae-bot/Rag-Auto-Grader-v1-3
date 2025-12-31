@@ -1,15 +1,9 @@
-streamlit>=1.32
-sentence-transformers>=2.6
-torch>=2.0
-numpy>=1.24
-pandas>=2.0
-scikit-learn>=1.3
-requests>=2.31
-openpyxl>=3.1
-
-# Optional document support
-pdfplumber>=0.10
-docx2txt>=0.8
-
-# Optional grammar checking
-language-tool-python>=2.7
+streamlit
+sentence-transformers
+scikit-learn
+pandas
+pdfplumber
+docx2txt
+language-tool-python
+openpyxl
+requests
